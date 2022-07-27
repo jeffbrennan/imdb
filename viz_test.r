@@ -200,6 +200,11 @@ ggplot(tv_df, aes(x = episodeNumber, y = 1, fill = averageRating)) +
   theme(strip.text.y = element_text(size = 24, color = JB_COLORS$gray_light, face = "bold.italic")) +
   theme(panel.spacing = unit(0.01, "lines"))
 
+ggsave('viz/televiz_sample_season_epi.png',
+       width = 10,
+       height = 6,
+       dpi = 600)
+
 
 # ----
 
@@ -247,6 +252,12 @@ ggplot(season_df,
   theme(plot.background = element_rect(fill = 'gray20', color = 'gray20')) +
   theme(plot.title = element_text(color = 'gray90', size = 20, face = 'bold')) +
   theme(axis.text.x = element_text(color = 'gray90', size = 20, face = 'bold'))
+
+
+ggsave('viz/televiz_sample_season.png',
+       width = 6,
+       height = 6,
+       dpi = 600)
 
 
 ggplot(tv_df, aes(x = episodeNumber, y = 1, fill = averageRating)) +
