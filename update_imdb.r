@@ -1,13 +1,21 @@
 library(data.table)
 library(tidyverse)
+library(lubridate)
 
-titles = fread('https://datasets.imdbws.com/title.basics.tsv.gz')
-ratings = fread('https://datasets.imdbws.com/title.ratings.tsv.gz')
-episodes = fread('https://datasets.imdbws.com/title.episode.tsv.gz')
+# update weekly
+last_update = file.mtime('data/raw_titles.csv') |>
+  as.Date()
 
-fwrite(titles, 'data/raw_titles.csv')
-fwrite(ratings, 'data/raw_ratings.csv')
-fwrite(episodes, 'data/raw_episodes.csv')
+if (Sys.Date() - last_update > 7) {
+  titles = fread('https://datasets.imdbws.com/title.basics.tsv.gz')
+  ratings = fread('https://datasets.imdbws.com/title.ratings.tsv.gz')
+  episodes = fread('https://datasets.imdbws.com/title.episode.tsv.gz')
+
+  fwrite(titles, 'data/raw_titles.csv')
+  fwrite(ratings, 'data/raw_ratings.csv')
+  fwrite(episodes, 'data/raw_episodes.csv')
+}
+
 
 tv_viz_raw = episodes |>
   inner_join(titles |> select(tconst, primaryTitle, startYear), by = 'tconst') |>
