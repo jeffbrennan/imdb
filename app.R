@@ -1,4 +1,5 @@
 library(shiny)
+library(shinybrowser)
 library(data.table)
 library(glue)
 library(tidyverse)
@@ -7,6 +8,7 @@ library(DT)
 library(shinyWidgets)
 
 options(dplyr.summarise.inform = FALSE)
+
 # map colors
 background_color = '#333333'     #gray
 nonrec_color = '#FB836F'  #salmon
@@ -48,78 +50,98 @@ css = "
 }
 "
 
+Label_Floats = function(x, round_sig=1) {
+  raw_result = as.character(round(x, round_sig))
+
+  result = map(raw_result,
+               ~ifelse(str_length(.) == 1,
+                       str_c(., '.0'),
+                       .)
+  ) |>
+    unlist()
+
+  return(result)
+}
+
+
 # ui ------------------------------------------------------------------------------------------
 ui = fluidPage(
-  tags$head(tags$style(css)),
+  shinybrowser::detect(),
+  tags$head(
+     tags$style(css)
+    ),
   setBackgroundColor(color = c(JB_COLORS$gray_dark)),
   fluidRow(
-    column(12, offset = 0,
+    column(width = 4,
+           offset = 4,
            align = 'center',
-           style = glue('font-family: Cooper Black; color: {JB_COLORS$gray_light}; background-color:{JB_COLORS$gray_dark}'),
-           h1("TeleViz™️")
-    )
+           style = glue('font-family: Cooper Black; font-size: 28px; color: {JB_COLORS$gray_light}; background-color:{JB_COLORS$gray_dark}'),
+           strong("TeleViz™")
+    ),
   ),
   fluidRow(
     column(12, offset = 0,
            align = 'center',
-           style = glue('font-family: Arial; font-size: 24px; color: {JB_COLORS$gray_light}; background-color:{JB_COLORS$gray_dark}'),
+           style = glue('font-family: Arial; font-size: 18px; color: {JB_COLORS$gray_light}; background-color:{JB_COLORS$gray_dark}'),
            fluidRow(
-             column(6, offset = 3,
+             column(12,
                     align = 'center',
                     textInput("query",
-                              "enter a tv show:",
-                              value = '',
-                              width = '100%')
-                    ),
+                              label = NULL,
+                              value = 'Betty Boop',
+                              width = '40%'  # TODO: make this dynamic with renderui
+                              )
+                    )
+             )
            )
-    )
-  ),
-
+    ),
 # plots ---------------------------------------------------------------------------------------
   fluidRow(
-    column(
-      12, offset = 0,
-      fluidRow(
-        column(
-          12, align = 'center',
+    column(12, align = 'center',
           style = glue("background-color:{JB_COLORS$gray_dark}"),
           plotOutput('season')
           )
-        )
-      )
     ),
   hr(style = "border-top: 3px solid #FFFFFF;"),
   fluidRow(
     column(
-      12, offset = 0,
-      fluidRow(
-        column(
           12, align = 'center',
           style = glue("background-color:{JB_COLORS$gray_dark}"),
           plotOutput('season_epi_simple')
         )
-      )
-    )
-  )
-)
-
-server = function(input, output) {
+))
+#   hr(style = "border-top: 3px solid #FFFFFF;"),
+# fluidRow(
+#   column(width = 2,
+#        # offset = 0,
+#        align = 'left',
+#        style = 'color: black; padding: 0px; background-color:white',
+#        # style = glue('font-family: Fira Code Medium;font-size: 10px; color: {JB_COLORS$gray_light}; background-color:{JB_COLORS$gray_dark}'),
+#        textOutput('last_updated'))
+# )
+# )
+server = function(input, output, session) {
   # TODO: add date modified helptext
   # TODO: add separate phone/desktop sizing - get active window size and make calculations based on that
 
 # load data -----------------------------------------------------------------------------------
-
+  last_updated = file.mtime('data/imdb_tv.csv')
+  output$last_updated = renderText({format(as.Date(last_updated), '%Y-%m-%d')})
+  output$title = renderText({'TeleViz™️'})
 
   tv_viz_raw = fread('data/imdb_tv.csv')
   show_select = fread('data/imdb_tv_show_select.csv')
 
 # create df  ----------------------------------------------------------------------------------
 
+  # output$dynamic_width = renderUI(ifelse(shinybrowser::getwidth() > 800, '35%', '50%'))
+
   tv_df = reactive({
     if(input$query != '') {
       show_tconst = show_select |>
         mutate(query_match = stringdist::stringdist(str_to_upper(input$query), show_title)) |>
         filter(query_match == min(query_match)) |>
+        slice(1) |>
         pull(parentTconst)
       } else {
       show_tconst = show_select |> slice(1) |> pull(parentTconst)
@@ -130,9 +152,14 @@ server = function(input, output) {
 
   num_seasons = reactive({tv_df() |> pull(seasonNumber) |> unique() |> length()})
   num_episodes =  reactive({tv_df() |> pull(episodeNumber) |> unique() |> length()})
-  height_season_epi = reactive(400 + (num_seasons() * 20))
-  width_season_epi = reactive(250 + (num_episodes() * 15))
 
+  se_mod = reactive(case_when(
+                              shinybrowser::get_width() > 800 ~ 1,
+                              num_seasons() < 8 ~ 1,
+                              num_seasons() >= 8 & num_seasons() < 15 ~ 1 - (num_seasons() - 8) * 0.1,
+                              TRUE ~ 0.4
+                              )
+                    )
 # season --------------------------------------------------------------------------------------
   output$season = renderPlot({
     season_df = tv_df() |>
@@ -151,15 +178,15 @@ server = function(input, output) {
     ) +
       geom_bar(stat = 'identity') +
       labs(title = season_df$show_title[1]) +
-      ggtext::geom_richtext(aes(label = round(averageRating, 1)),
+      ggtext::geom_richtext(aes(label = Label_Floats(averageRating, 1)),
                             vjust = -0.1,
-                            size = 5,
+                            size = 5 * se_mod(),
                             fontface = 'bold',
                             color = 'gray90',
                             fill = '#333333',
                             label.size = 1.1,
-                            label.padding = unit(4, 'pt'),
-                            label.margin = unit(3, "pt")) +
+                            label.padding = unit(4 * se_mod(), 'pt'),
+                            label.margin = unit(3 * se_mod(), "pt")) +
       coord_cartesian(ylim = c(0, ceiling(max_rating + 1))) +
       scale_fill_gradient2(low = 'gray40',
                            mid = JB_COLORS$teal_white,
@@ -177,37 +204,35 @@ server = function(input, output) {
       theme(panel.background = element_rect(fill = 'gray20', color = 'gray20')) +
       theme(plot.background = element_rect(fill = 'gray20', color = 'gray20')) +
       theme(plot.title = element_text(color = 'gray90', size = 25, face = 'bold.italic')) +
-      theme(axis.text.x = element_text(color = 'gray90', size = 16, face = 'bold.italic'))
-
+      theme(axis.text.x = element_text(color = 'gray90', size = 16 * se_mod(), face = 'bold.italic'))
 
     season
-  })
+  }
+  )
 
 # season epi simple ---------------------------------------------------------------------------
   output$season_epi_simple = renderPlot({
     tv_epi_simple = tv_df()
     season_epi_simple = ggplot(tv_epi_simple, aes(x = episodeNumber, y = 1, fill = averageRating)) +
       geom_bar(stat = 'identity') +
-      geom_text(aes(label = averageRating),
+      geom_text(aes(label = Label_Floats(averageRating)),
                 position = position_stack(vjust = 0.5),
                 fontface = 'bold',
-                size = 4) +
+                size = 6 * se_mod()) +
       facet_wrap(~seasonNumber, strip.position = 'left', ncol = 1) +
       scale_fill_gradient2(low = 'gray40',
                            mid = 'gray95',
-                           # mid = JB_COLORS$teal_white,
                            high = JB_COLORS$teal_green,
                            midpoint = median(tv_epi_simple$averageRating) * 0.95
       ) +
       labs(x=NULL, y=NULL) +
       ggpubr::theme_pubr() +
-      # theme_void() +
-      # scale_x_discrete(position = "top") +
       theme(axis.text.x = element_blank()) +
       theme(legend.position = 'none') +
       theme(plot.background = element_rect(fill = 'gray20', color = 'gray20')) +
-      theme(strip.text.y = element_text(size = 16, color = JB_COLORS$gray_light, face = "bold")) +
-      # theme(axis.text.x = element_text(size = 20, color = JB_COLORS$gray_light, face = "bold")) +
+      theme(strip.text.y = element_text(size = 12 * se_mod(),
+                                        color = JB_COLORS$gray_light,
+                                        face = "bold")) +
       theme(axis.ticks.x = element_blank(),
             axis.title.x = element_blank(),
             axis.text.y = element_blank(),
@@ -221,9 +246,7 @@ server = function(input, output) {
 
     season_epi_simple
   },
-  height = reactive(height_season_epi()),
-  width = reactive(width_season_epi())
+  height = function() {session$clientData$output_season_epi_simple_width * 0.75}
   )
 }
-
 shinyApp(ui = ui, server = server)
