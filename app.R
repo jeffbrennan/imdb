@@ -6,43 +6,15 @@ library(tidyverse)
 library(ggrepel)
 library(DT)
 library(shinyWidgets)
-
 options(dplyr.summarise.inform = FALSE)
 
-# map colors
-background_color = '#333333'     #gray
-nonrec_color = '#FB836F'  #salmon
-
 JB_COLORS = list(
-  orange_teal_11 = c('#ff782a',
-                     '#ff8d4d',
-                     '#ffa26e',
-                     '#ffb68e',
-                     '#ffc9ae',
-                     '#faddcf',
-                     '#f1f1f1',
-                     '#dae7e7',
-                     '#c4dddd',
-                     '#add4d3',
-                     '#96caca',
-                     '#7ec1c0',
-                     '#63b7b7'
-                     ),
-  orange =           '#ff782a',
-  orange_dark =      '#FC581D',
-  fuchsia =          '#C23180',
-  teal =             '#63b7b7',
-  green =            '#488f31',
-  red =              '#de425b',
-  purple =           '#923AB9',
   teal_white =       '#D9FBFB',
-  teal_accent =      '#3DDBD9',
   teal_dark =        '#007D79',
-  teal_med =         '#009C9D',
   teal_green =       '#006D5B',
   gray_dark =        '#333333',
   gray_light =       '#E5E5E5'
-  )
+)
 
 css = "
 .navbar-default {
@@ -97,7 +69,7 @@ ui = fluidPage(
     ),
 # plots ---------------------------------------------------------------------------------------
   fluidRow(
-    column(12, align = 'center',
+    column(12, align = 'left',
           style = glue("background-color:{JB_COLORS$gray_dark}"),
           plotOutput('season')
           )
@@ -105,7 +77,7 @@ ui = fluidPage(
   hr(style = "border-top: 3px solid #FFFFFF;"),
   fluidRow(
     column(
-          12, align = 'center',
+          12, align = 'left',
           style = glue("background-color:{JB_COLORS$gray_dark}"),
           plotOutput('season_epi_simple')
         )
@@ -121,8 +93,6 @@ ui = fluidPage(
 # )
 # )
 server = function(input, output, session) {
-  # TODO: add date modified helptext
-  # TODO: add separate phone/desktop sizing - get active window size and make calculations based on that
 
 # load data -----------------------------------------------------------------------------------
   last_updated = file.mtime('data/imdb_tv.csv')
@@ -153,13 +123,24 @@ server = function(input, output, session) {
   num_seasons = reactive({tv_df() |> pull(seasonNumber) |> unique() |> length()})
   num_episodes =  reactive({tv_df() |> pull(episodeNumber) |> unique() |> length()})
 
-  se_mod = reactive(case_when(
-                              shinybrowser::get_width() > 800 ~ 1,
-                              num_seasons() < 8 ~ 1,
-                              num_seasons() >= 8 & num_seasons() < 15 ~ 1 - (num_seasons() - 8) * 0.1,
-                              TRUE ~ 0.4
-                              )
-                    )
+
+# screen size  --------------------------------------------------------------------------------
+  screen_w = reactive(shinybrowser::get_width())
+
+  se_mod_h = reactive(
+    case_when(
+      screen_w() > 800 ~ (1 + ((screen_w() - 600) / 2000)),
+      screen_w() > 600 ~ 1,
+      num_seasons() < 8 ~ 1,
+      num_seasons() >= 8 & num_seasons() < 15 ~ 1 - (num_seasons() - 8) * 0.1,
+      TRUE ~ 0.4
+      )
+    )
+
+  se_block_w = reactive(round(screen_w() / num_episodes(), 0))
+  se_block_h = reactive(round((screen_w() * 0.6) / num_seasons(), 0))
+  se_block_size = reactive(se_block_w() * se_block_h())
+
 # season --------------------------------------------------------------------------------------
   output$season = renderPlot({
     season_df = tv_df() |>
@@ -177,16 +158,18 @@ server = function(input, output, session) {
                         fill = averageRating)
     ) +
       geom_bar(stat = 'identity') +
-      labs(title = season_df$show_title[1]) +
+      labs(title = season_df$show_title[1],
+           subtitle = str_c(se_mod_h(), ' | ', se_block_w(), '|', se_block_h(), '|', se_block_size())
+          ) +
       ggtext::geom_richtext(aes(label = Label_Floats(averageRating, 1)),
                             vjust = -0.1,
-                            size = 5 * se_mod(),
+                            size = 5 * se_mod_h(),
                             fontface = 'bold',
                             color = 'gray90',
                             fill = '#333333',
                             label.size = 1.1,
-                            label.padding = unit(4 * se_mod(), 'pt'),
-                            label.margin = unit(3 * se_mod(), "pt")) +
+                            label.padding = unit(4 * se_mod_h(), 'pt'),
+                            label.margin = unit(3 * se_mod_h(), "pt")) +
       coord_cartesian(ylim = c(0, ceiling(max_rating + 1))) +
       scale_fill_gradient2(low = 'gray40',
                            mid = JB_COLORS$teal_white,
@@ -204,7 +187,8 @@ server = function(input, output, session) {
       theme(panel.background = element_rect(fill = 'gray20', color = 'gray20')) +
       theme(plot.background = element_rect(fill = 'gray20', color = 'gray20')) +
       theme(plot.title = element_text(color = 'gray90', size = 25, face = 'bold.italic')) +
-      theme(axis.text.x = element_text(color = 'gray90', size = 16 * se_mod(), face = 'bold.italic'))
+      theme(plot.subtitle = element_text(color = 'gray90', size = 12, face = 'bold.italic')) +
+      theme(axis.text.x = element_text(color = 'gray90', size = 16 * se_mod_h(), face = 'bold.italic'))
 
     season
   }
@@ -218,7 +202,7 @@ server = function(input, output, session) {
       geom_text(aes(label = Label_Floats(averageRating)),
                 position = position_stack(vjust = 0.5),
                 fontface = 'bold',
-                size = 6 * se_mod()) +
+                size = 4 * se_mod_h()) +
       facet_wrap(~seasonNumber, strip.position = 'left', ncol = 1) +
       scale_fill_gradient2(low = 'gray40',
                            mid = 'gray95',
@@ -230,7 +214,7 @@ server = function(input, output, session) {
       theme(axis.text.x = element_blank()) +
       theme(legend.position = 'none') +
       theme(plot.background = element_rect(fill = 'gray20', color = 'gray20')) +
-      theme(strip.text.y = element_text(size = 12 * se_mod(),
+      theme(strip.text.y = element_text(size = 12 * se_mod_h(),
                                         color = JB_COLORS$gray_light,
                                         face = "bold")) +
       theme(axis.ticks.x = element_blank(),
@@ -246,7 +230,7 @@ server = function(input, output, session) {
 
     season_epi_simple
   },
-  height = function() {session$clientData$output_season_epi_simple_width * 0.75}
+  height = function() {session$clientData$output_season_epi_simple_width * 0.6}
   )
 }
 shinyApp(ui = ui, server = server)
