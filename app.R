@@ -35,7 +35,6 @@ Label_Floats = function(x, round_sig=1) {
   return(result)
 }
 
-
 # ui ------------------------------------------------------------------------------------------
 ui = fluidPage(
   shinybrowser::detect(),
@@ -47,7 +46,9 @@ ui = fluidPage(
     column(width = 4,
            offset = 4,
            align = 'center',
-           style = glue('font-family: Cooper Black; font-size: 28px; color: {JB_COLORS$gray_light}; background-color:{JB_COLORS$gray_dark}'),
+           style = glue('font-family: Cooper Black;
+                         font-size: 28px; color: {JB_COLORS$gray_light};
+                         background-color:{JB_COLORS$gray_dark}'),
            strong("TeleViz™")
     ),
   ),
@@ -61,7 +62,7 @@ ui = fluidPage(
                     textInput("query",
                               label = NULL,
                               value = 'Betty Boop',
-                              width = '40%'  # TODO: make this dynamic with renderui
+                              width = '40%'
                               )
                     )
              )
@@ -81,31 +82,16 @@ ui = fluidPage(
           style = glue("background-color:{JB_COLORS$gray_dark}"),
           plotOutput('season_epi_simple')
         )
-))
-#   hr(style = "border-top: 3px solid #FFFFFF;"),
-# fluidRow(
-#   column(width = 2,
-#        # offset = 0,
-#        align = 'left',
-#        style = 'color: black; padding: 0px; background-color:white',
-#        # style = glue('font-family: Fira Code Medium;font-size: 10px; color: {JB_COLORS$gray_light}; background-color:{JB_COLORS$gray_dark}'),
-#        textOutput('last_updated'))
-# )
-# )
+)
+)
 server = function(input, output, session) {
-
-# load data -----------------------------------------------------------------------------------
-  last_updated = file.mtime('data/imdb_tv.csv')
-  output$last_updated = renderText({format(as.Date(last_updated), '%Y-%m-%d')})
   output$title = renderText({'TeleViz™️'})
 
+  # load data -----------------------------------------------------------------------------------
   tv_viz_raw = fread('data/imdb_tv.csv')
   show_select = fread('data/imdb_tv_show_select.csv')
 
-# create df  ----------------------------------------------------------------------------------
-
-  # output$dynamic_width = renderUI(ifelse(shinybrowser::getwidth() > 800, '35%', '50%'))
-
+  # create df  ----------------------------------------------------------------------------------
   tv_df = reactive({
     if(input$query != '') {
       show_tconst = show_select |>
@@ -119,14 +105,13 @@ server = function(input, output, session) {
     tv_viz_raw |> filter(parentTconst == show_tconst)
     })
 
-
+  # screen size  --------------------------------------------------------------------------------
   num_seasons = reactive({tv_df() |> pull(seasonNumber) |> unique() |> length()})
   num_episodes =  reactive({tv_df() |> pull(episodeNumber) |> unique() |> length()})
 
-
-# screen size  --------------------------------------------------------------------------------
   screen_w = reactive(shinybrowser::get_width())
 
+  # TODO: add season/epi based modifications to larger screen sizes
   se_mod_h = reactive(
     case_when(
       screen_w() > 800 ~ (1 + ((screen_w() - 600) / 2000)),
@@ -137,11 +122,15 @@ server = function(input, output, session) {
       )
     )
 
-  se_block_w = reactive(round(screen_w() / num_episodes(), 0))
-  se_block_h = reactive(round((screen_w() * 0.6) / num_seasons(), 0))
-  se_block_size = reactive(se_block_w() * se_block_h())
+  epi_season_ratio = reactive(round(num_seasons() / num_episodes(), 3))
+  diagnostic_helptext = reactive(str_c(screen_w(), '|', epi_season_ratio(), '|', se_mod_h()))
 
-# season --------------------------------------------------------------------------------------
+
+
+  # plots ---------------------------------------------------------------------------------------
+
+
+  ## season --------------------------------------------------------------------------------------
   output$season = renderPlot({
     season_df = tv_df() |>
       group_by(show_title, seasonNumber) |>
@@ -152,14 +141,16 @@ server = function(input, output, session) {
 
     max_rating = max(season_df$averageRating)
 
-    season = ggplot(season_df,
-                    aes(x = seasonNumber,
-                        y = averageRating,
-                        fill = averageRating)
-    ) +
+    ggplot(
+      season_df,
+      aes(x = seasonNumber,
+          y = averageRating,
+          fill = averageRating
+          )
+      ) +
       geom_bar(stat = 'identity') +
       labs(title = season_df$show_title[1],
-           subtitle = str_c(se_mod_h(), ' | ', se_block_w(), '|', se_block_h(), '|', se_block_size())
+           subtitle = diagnostic_helptext()
           ) +
       ggtext::geom_richtext(aes(label = Label_Floats(averageRating, 1)),
                             vjust = -0.1,
@@ -189,15 +180,23 @@ server = function(input, output, session) {
       theme(plot.title = element_text(color = 'gray90', size = 25, face = 'bold.italic')) +
       theme(plot.subtitle = element_text(color = 'gray90', size = 12, face = 'bold.italic')) +
       theme(axis.text.x = element_text(color = 'gray90', size = 16 * se_mod_h(), face = 'bold.italic'))
-
-    season
   }
   )
 
-# season epi simple ---------------------------------------------------------------------------
+
+  # TODO: fix coloring for outlier seasons/episodes like GoT (all gray)
+  ## season+episode ---------------------------------------------------------------------------
   output$season_epi_simple = renderPlot({
     tv_epi_simple = tv_df()
-    season_epi_simple = ggplot(tv_epi_simple, aes(x = episodeNumber, y = 1, fill = averageRating)) +
+
+    ggplot(
+      tv_epi_simple,
+      aes(
+          x = episodeNumber,
+          y = 1,
+          fill = averageRating
+          )
+      ) +
       geom_bar(stat = 'identity') +
       geom_text(aes(label = Label_Floats(averageRating)),
                 position = position_stack(vjust = 0.5),
@@ -227,10 +226,8 @@ server = function(input, output, session) {
       theme(strip.background.y = element_rect(fill = 'gray20', color = 'gray20')) +
       theme(panel.spacing = unit(0.1, 'lines')) +
       theme(plot.margin = unit(c(0,0,0,0), 'pt'))
-
-    season_epi_simple
   },
-  height = function() {session$clientData$output_season_epi_simple_width * 0.6}
+  height = function() {session$clientData$output_season_epi_simple_width * epi_season_ratio()}
   )
 }
 shinyApp(ui = ui, server = server)
